@@ -88,10 +88,9 @@ function create() {
     gg.generateTexture('girl', 20, 60);
     gg.destroy();
 
-    girl = this.physics.add.sprite(660, 370, 'girl');
-    girl.setCollideWorldBounds(true);
-    girl.body.setImmovable(true);
-    this.physics.add.collider(girl, groundSprite);
+    // Static sprite: no gravedad, no se mueve — posición manual sobre el suelo
+    // y=405 = borde superior del suelo (434.5) - mitad del sprite (30)
+    girl = this.physics.add.staticSprite(660, 405, 'girl');
 
     cursors = this.input.keyboard.createCursorKeys();
     keys = this.input.keyboard.addKeys({
@@ -99,6 +98,7 @@ function create() {
         right: Phaser.Input.Keyboard.KeyCodes.D
     });
     spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    keys.down = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
 }
 
 function update() {
@@ -118,7 +118,7 @@ function update() {
 
     // Agacharse con SPACE (solo en el suelo)
     // Body 20x36 con offset.y=24 mantiene los pies en el mismo y que de pie
-    if (spaceKey.isDown && onGround) {
+    if ((spaceKey.isDown || keys.down.isDown) && onGround) {
         if (!isCrouching) {
             isCrouching = true;
             player.setTexture('player_crouch');

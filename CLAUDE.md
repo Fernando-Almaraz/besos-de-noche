@@ -36,7 +36,7 @@ Un chico debe llegar hasta su novia para darle un beso, pero hay un **haz de luz
 
 ### Controles
 - `A` / `D` — moverse izquierda/derecha
-- `SPACE` — agacharse (para pasar bajo el haz de luz)
+- `SPACE` / `↓` — agacharse (para pasar bajo el haz de luz)
 - `↑` — saltar
 
 ### Haz de luz
@@ -142,6 +142,12 @@ git push
 - 3 niveles con dificultad creciente
 - Diferentes patrones de luz
 - Obstáculos adicionales
+
+### Fase 7 — Soporte móvil
+- Touch events para dispositivos táctiles
+- Botones virtuales en pantalla (izq, der, agachar, saltar)
+- Layout adaptable: canvas centrado, botones en la zona inferior
+- No interrumpir el gameplay en escritorio
 
 ---
 
