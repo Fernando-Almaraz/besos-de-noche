@@ -11,7 +11,8 @@ const config = {
 
 new Phaser.Game(config);
 
-let player, groundSprite, cursors, keys;
+let player, girl, groundSprite, cursors, keys, spaceKey;
+let isCrouching = false;
 
 function preload() {}
 
@@ -32,28 +33,72 @@ function create() {
 
     drawBushes(this);
 
-    // Jugador: stick figure generado como textura
+    // Player de pie (20x60)
     let pg = this.make.graphics({ add: false });
     pg.fillStyle(0x111111);
-    pg.fillCircle(10, 10, 8);        // cabeza
+    pg.fillCircle(10, 10, 8);
     pg.lineStyle(3, 0x111111);
-    pg.lineBetween(10, 18, 10, 42);  // cuerpo
-    pg.lineBetween(10, 24, 0,  34);  // brazo izq
-    pg.lineBetween(10, 24, 20, 34);  // brazo der
-    pg.lineBetween(10, 42, 3,  57);  // pierna izq
-    pg.lineBetween(10, 42, 17, 57);  // pierna der
-    pg.generateTexture('player', 20, 60);
+    pg.lineBetween(10, 18, 10, 42);
+    pg.lineBetween(10, 24, 0,  34);
+    pg.lineBetween(10, 24, 20, 34);
+    pg.lineBetween(10, 42, 3,  57);
+    pg.lineBetween(10, 42, 17, 57);
+    pg.generateTexture('player_stand', 20, 60);
     pg.destroy();
 
-    player = this.physics.add.sprite(120, 370, 'player');
+    // Player agachado: figura en la mitad inferior del mismo canvas 20x60
+    // Así el sprite.y no cambia al hacer switch de textura
+    let pg2 = this.make.graphics({ add: false });
+    pg2.fillStyle(0x111111);
+    pg2.fillCircle(10, 30, 7);
+    pg2.lineStyle(3, 0x111111);
+    pg2.lineBetween(10, 37, 10, 48);
+    pg2.lineBetween(10, 41, 1,  50);
+    pg2.lineBetween(10, 41, 19, 50);
+    pg2.lineBetween(10, 48, 2,  58);
+    pg2.lineBetween(10, 48, 18, 58);
+    pg2.generateTexture('player_crouch', 20, 60);
+    pg2.destroy();
+
+    player = this.physics.add.sprite(120, 370, 'player_stand');
     player.setCollideWorldBounds(true);
     this.physics.add.collider(player, groundSprite);
+
+    // Chica al lado derecho del nivel
+    let gg = this.make.graphics({ add: false });
+    gg.fillStyle(0x111111);
+    gg.fillCircle(10, 10, 8);
+    // Pelo: dos mechones laterales
+    gg.lineStyle(2, 0x662244);
+    gg.lineBetween(3, 8, 0, 2);
+    gg.lineBetween(17, 8, 20, 2);
+    // Cuerpo
+    gg.lineStyle(3, 0x111111);
+    gg.lineBetween(10, 18, 10, 36);
+    gg.lineBetween(10, 24, 0,  34);
+    gg.lineBetween(10, 24, 20, 34);
+    // Falda (dos triángulos que forman una falda acampanada)
+    gg.fillStyle(0x661133);
+    gg.fillTriangle(6, 36, 14, 36, 1, 57);
+    gg.fillTriangle(6, 36, 14, 36, 19, 57);
+    // Piernas bajo la falda
+    gg.lineStyle(2, 0x111111);
+    gg.lineBetween(8, 50, 5, 57);
+    gg.lineBetween(12, 50, 15, 57);
+    gg.generateTexture('girl', 20, 60);
+    gg.destroy();
+
+    girl = this.physics.add.sprite(660, 370, 'girl');
+    girl.setCollideWorldBounds(true);
+    girl.body.setImmovable(true);
+    this.physics.add.collider(girl, groundSprite);
 
     cursors = this.input.keyboard.createCursorKeys();
     keys = this.input.keyboard.addKeys({
         left:  Phaser.Input.Keyboard.KeyCodes.A,
         right: Phaser.Input.Keyboard.KeyCodes.D
     });
+    spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 }
 
 function update() {
@@ -69,6 +114,22 @@ function update() {
 
     if (cursors.up.isDown && onGround) {
         player.setVelocityY(-520);
+    }
+
+    // Agacharse con SPACE (solo en el suelo)
+    // Body 20x36 con offset.y=24 mantiene los pies en el mismo y que de pie
+    if (spaceKey.isDown && onGround) {
+        if (!isCrouching) {
+            isCrouching = true;
+            player.setTexture('player_crouch');
+            player.body.setSize(20, 36);
+            player.body.setOffset(0, 24);
+        }
+    } else if (isCrouching) {
+        isCrouching = false;
+        player.setTexture('player_stand');
+        player.body.setSize(20, 60);
+        player.body.setOffset(0, 0);
     }
 }
 
