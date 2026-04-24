@@ -13,13 +13,18 @@ new Phaser.Game(config);
 
 let player, girl, groundSprite, cursors, keys, spaceKey;
 let isCrouching = false;
+let lightGfx, lightX, lightSpeed;
+let lives = 3, hitCooldown = 0, gameOver = false;
+let livesText;
+
+const BEAM_SRC_X  = 790;  // fuente del haz (arriba-derecha)
+const BEAM_HIT_HW = 55;   // semi-ancho de detección sobre el suelo
 
 function preload() {}
 
 function create() {
     drawBackground(this);
 
-    // Suelo: textura generada (pasto + tierra)
     let groundGfx = this.make.graphics({ add: false });
     groundGfx.fillStyle(0x2d7a2d);
     groundGfx.fillRect(0, 0, 800, 10);
@@ -28,10 +33,13 @@ function create() {
     groundGfx.generateTexture('ground', 800, 65);
     groundGfx.destroy();
 
-    // y=467 centra la textura de 65px entre y=435 y y=500
     groundSprite = this.physics.add.staticImage(400, 467, 'ground');
-
     drawBushes(this);
+
+    // Haz creado antes que el jugador → queda detrás en el orden de render
+    lightGfx   = this.add.graphics();
+    lightX     = 400;
+    lightSpeed = 150;
 
     // Player de pie (20x60)
     let pg = this.make.graphics({ add: false });
@@ -47,7 +55,6 @@ function create() {
     pg.destroy();
 
     // Player agachado: figura en la mitad inferior del mismo canvas 20x60
-    // Así el sprite.y no cambia al hacer switch de textura
     let pg2 = this.make.graphics({ add: false });
     pg2.fillStyle(0x111111);
     pg2.fillCircle(10, 30, 7);
@@ -64,46 +71,48 @@ function create() {
     player.setCollideWorldBounds(true);
     this.physics.add.collider(player, groundSprite);
 
-    // Chica al lado derecho del nivel
+    // Chica
     let gg = this.make.graphics({ add: false });
     gg.fillStyle(0x111111);
     gg.fillCircle(10, 10, 8);
-    // Pelo: dos mechones laterales
     gg.lineStyle(2, 0x662244);
     gg.lineBetween(3, 8, 0, 2);
     gg.lineBetween(17, 8, 20, 2);
-    // Cuerpo
     gg.lineStyle(3, 0x111111);
     gg.lineBetween(10, 18, 10, 36);
     gg.lineBetween(10, 24, 0,  34);
     gg.lineBetween(10, 24, 20, 34);
-    // Falda (dos triángulos que forman una falda acampanada)
     gg.fillStyle(0x661133);
     gg.fillTriangle(6, 36, 14, 36, 1, 57);
     gg.fillTriangle(6, 36, 14, 36, 19, 57);
-    // Piernas bajo la falda
     gg.lineStyle(2, 0x111111);
     gg.lineBetween(8, 50, 5, 57);
     gg.lineBetween(12, 50, 15, 57);
     gg.generateTexture('girl', 20, 60);
     gg.destroy();
 
-    // Static sprite: no gravedad, no se mueve — posición manual sobre el suelo
-    // y=405 = borde superior del suelo (434.5) - mitad del sprite (30)
+    // y=405: borde superior del suelo (434.5) - mitad del sprite (30)
     girl = this.physics.add.staticSprite(660, 405, 'girl');
 
-    cursors = this.input.keyboard.createCursorKeys();
-    keys = this.input.keyboard.addKeys({
+    cursors   = this.input.keyboard.createCursorKeys();
+    keys      = this.input.keyboard.addKeys({
         left:  Phaser.Input.Keyboard.KeyCodes.A,
         right: Phaser.Input.Keyboard.KeyCodes.D
     });
-    spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    spaceKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     keys.down = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
+
+    livesText = this.add.text(16, 16, '♥  ♥  ♥', {
+        fontSize: '20px',
+        color: '#ff6666',
+        fontFamily: 'monospace'
+    });
 }
 
-function update() {
+function update(time, delta) {
     const onGround = player.body.blocked.down;
 
+    // Movimiento horizontal
     if (cursors.left.isDown || keys.left.isDown) {
         player.setVelocityX(-180);
     } else if (cursors.right.isDown || keys.right.isDown) {
@@ -112,12 +121,13 @@ function update() {
         player.setVelocityX(0);
     }
 
+    // Salto
     if (cursors.up.isDown && onGround) {
         player.setVelocityY(-520);
     }
 
-    // Agacharse con SPACE (solo en el suelo)
-    // Body 20x36 con offset.y=24 mantiene los pies en el mismo y que de pie
+    // Agacharse (SPACE o ↓, solo en el suelo)
+    // body 20x36 + offset.y=24 mantiene los pies en el mismo Y que de pie
     if ((spaceKey.isDown || keys.down.isDown) && onGround) {
         if (!isCrouching) {
             isCrouching = true;
@@ -131,18 +141,73 @@ function update() {
         player.body.setSize(20, 60);
         player.body.setOffset(0, 0);
     }
+
+    if (gameOver) return;
+
+    // ─── Haz de luz ────────────────────────────────────────────
+
+    // Movimiento lateral con rebote
+    lightX += lightSpeed * (delta / 1000);
+    if (lightX > 630) { lightX = 630; lightSpeed = -Math.abs(lightSpeed); }
+    if (lightX < 100) { lightX = 100; lightSpeed =  Math.abs(lightSpeed); }
+
+    // Dibujo en 3 capas para efecto de glow
+    lightGfx.clear();
+
+    // Capa 1: resplandor exterior ancho
+    lightGfx.fillStyle(0xffee00, 0.07);
+    lightGfx.fillPoints([
+        { x: BEAM_SRC_X - 15, y: 0   },
+        { x: BEAM_SRC_X + 15, y: 0   },
+        { x: lightX + 80,     y: 435 },
+        { x: lightX - 80,     y: 435 }
+    ], true);
+
+    // Capa 2: cono principal
+    lightGfx.fillStyle(0xffee00, 0.22);
+    lightGfx.fillPoints([
+        { x: BEAM_SRC_X - 8, y: 0   },
+        { x: BEAM_SRC_X + 8, y: 0   },
+        { x: lightX + 55,    y: 435 },
+        { x: lightX - 55,    y: 435 }
+    ], true);
+
+    // Capa 3: rayo central brillante
+    lightGfx.fillStyle(0xfffde7, 0.42);
+    lightGfx.fillTriangle(BEAM_SRC_X - 2, 0, BEAM_SRC_X + 2, 0, lightX, 435);
+
+    // Punto de la lámpara en la fuente
+    lightGfx.fillStyle(0xffffff, 0.9);
+    lightGfx.fillCircle(BEAM_SRC_X, 6, 6);
+
+    // ─── Detección ─────────────────────────────────────────────
+    // Agachado → siempre seguro (la luz pasa por arriba)
+    hitCooldown -= delta;
+    const inBeam = !isCrouching && Math.abs(player.x - lightX) < BEAM_HIT_HW;
+
+    if (inBeam && hitCooldown <= 0) {
+        lives--;
+        hitCooldown = 2000;
+        this.cameras.main.flash(300, 200, 20, 20);
+
+        if (lives <= 0) {
+            gameOver   = true;
+            lightSpeed = 0;
+            livesText.setText('GAME OVER').setColor('#ff2222');
+        } else {
+            livesText.setText(Array(lives).fill('♥').join('  '));
+        }
+    }
 }
 
 function drawBackground(scene) {
     let bg = scene.add.graphics();
 
-    // Cielo nocturno
     bg.fillStyle(0x050510);
     bg.fillRect(0, 0, 800, 440);
     bg.fillStyle(0x090920, 0.4);
     bg.fillRect(0, 220, 800, 220);
 
-    // Estrellas
     bg.fillStyle(0xffffff);
     [
         [50,30],[120,80],[200,20],[280,60],[350,30],[430,70],
@@ -153,13 +218,11 @@ function drawBackground(scene) {
         [445,50],[525,140],[335,85],[145,45],[695,250],[555,300]
     ].forEach(([x, y]) => bg.fillRect(x, y, 2, 2));
 
-    // Luna creciente
     bg.fillStyle(0xfffde7);
     bg.fillCircle(720, 55, 28);
     bg.fillStyle(0x050510);
     bg.fillCircle(710, 47, 22);
 
-    // Nubes oscuras
     [
         [100, 285, 0.8],
         [360, 258, 1.0],
