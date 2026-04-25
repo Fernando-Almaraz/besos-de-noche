@@ -13,12 +13,13 @@ new Phaser.Game(config);
 
 let player, girl, groundSprite, cursors, keys, spaceKey;
 let isCrouching = false;
-let lightGfx, lightX, lightSpeed;
+let lightGfx1, lightGfx2, lightX1, lightX2, lightSpeed1, lightSpeed2;
 let lives = 3, hitCooldown = 0, gameOver = false;
 let livesText;
 
-const BEAM_SRC_X  = 790;  // fuente del haz (arriba-derecha)
-const BEAM_HIT_HW = 55;   // semi-ancho de detección sobre el suelo
+const BEAM_SRC_RIGHT = 790;
+const BEAM_SRC_LEFT  = 10;
+const BEAM_HIT_HW    = 55;
 
 function preload() {}
 
@@ -36,34 +37,45 @@ function create() {
     groundSprite = this.physics.add.staticImage(400, 467, 'ground');
     drawBushes(this);
 
-    // Haz creado antes que el jugador → queda detrás en el orden de render
-    lightGfx   = this.add.graphics();
-    lightX     = 400;
-    lightSpeed = 150;
+    // Beams detrás del jugador en z-order
+    lightGfx1 = this.add.graphics();
+    lightGfx2 = this.add.graphics();
+    lightX1 = 580;  lightSpeed1 = -140;  // cámara derecha, empieza yendo a la izquierda
+    lightX2 = 200;  lightSpeed2 =  110;  // cámara izquierda, empieza yendo a la derecha
 
-    // Player de pie (20x60)
+    // ── Chico de pie ─────────────────────────────────────────────
     let pg = this.make.graphics({ add: false });
+    // Pelo revuelto (tufos sticking up, dibujados antes; cabeza encima los ancla)
     pg.fillStyle(0x111111);
+    pg.fillRect(5, 0, 3, 5);
+    pg.fillRect(9, 0, 4, 4);
+    pg.fillRect(14, 1, 3, 5);
     pg.fillCircle(10, 10, 8);
     pg.lineStyle(3, 0x111111);
     pg.lineBetween(10, 18, 10, 42);
-    pg.lineBetween(10, 24, 0,  34);
+    pg.lineBetween(10, 24, 0, 34);
     pg.lineBetween(10, 24, 20, 34);
-    pg.lineBetween(10, 42, 3,  57);
-    pg.lineBetween(10, 42, 17, 57);
+    // Pantalones anchos (formas rellenas en vez de líneas finas)
+    pg.fillStyle(0x111111);
+    pg.fillPoints([{x:4,y:42},{x:10,y:42},{x:9,y:58},{x:1,y:57}], true);
+    pg.fillPoints([{x:10,y:42},{x:16,y:42},{x:19,y:57},{x:11,y:58}], true);
     pg.generateTexture('player_stand', 20, 60);
     pg.destroy();
 
-    // Player agachado: figura en la mitad inferior del mismo canvas 20x60
+    // ── Chico agachado ────────────────────────────────────────────
     let pg2 = this.make.graphics({ add: false });
     pg2.fillStyle(0x111111);
+    pg2.fillRect(5, 24, 3, 4);
+    pg2.fillRect(9, 23, 4, 4);
+    pg2.fillRect(14, 24, 3, 4);
     pg2.fillCircle(10, 30, 7);
     pg2.lineStyle(3, 0x111111);
     pg2.lineBetween(10, 37, 10, 48);
-    pg2.lineBetween(10, 41, 1,  50);
+    pg2.lineBetween(10, 41, 1, 50);
     pg2.lineBetween(10, 41, 19, 50);
-    pg2.lineBetween(10, 48, 2,  58);
-    pg2.lineBetween(10, 48, 18, 58);
+    pg2.fillStyle(0x111111);
+    pg2.fillPoints([{x:5,y:48},{x:10,y:48},{x:8,y:59},{x:2,y:57}], true);
+    pg2.fillPoints([{x:10,y:48},{x:15,y:48},{x:18,y:57},{x:12,y:59}], true);
     pg2.generateTexture('player_crouch', 20, 60);
     pg2.destroy();
 
@@ -71,28 +83,36 @@ function create() {
     player.setCollideWorldBounds(true);
     this.physics.add.collider(player, groundSprite);
 
-    // Chica
+    // ── Chica ─────────────────────────────────────────────────────
     let gg = this.make.graphics({ add: false });
+    // Cabello azul en mechones (dibujado antes → cabeza lo superpone en el centro)
+    gg.fillStyle(0x4488dd);
+    gg.fillTriangle(0, 7, 6, 5, 2, 22);    // mechón izquierdo cae a los lados
+    gg.fillTriangle(14, 5, 20, 7, 18, 22); // mechón derecho
+    gg.fillTriangle(5, 4, 15, 4, 10, 1);   // volumen encima
+    // Cabeza encima del cabello
     gg.fillStyle(0x111111);
     gg.fillCircle(10, 10, 8);
-    gg.lineStyle(2, 0x662244);
-    gg.lineBetween(3, 8, 0, 2);
-    gg.lineBetween(17, 8, 20, 2);
+    // Cuerpo
     gg.lineStyle(3, 0x111111);
     gg.lineBetween(10, 18, 10, 36);
-    gg.lineBetween(10, 24, 0,  34);
+    gg.lineBetween(10, 24, 0, 34);
     gg.lineBetween(10, 24, 20, 34);
-    gg.fillStyle(0x661133);
-    gg.fillTriangle(6, 36, 14, 36, 1, 57);
-    gg.fillTriangle(6, 36, 14, 36, 19, 57);
+    // Vestido (falda)
+    gg.fillStyle(0x881144);
+    gg.fillTriangle(5, 36, 15, 36, 1, 57);
+    gg.fillTriangle(5, 36, 15, 36, 19, 57);
+    // Piernas visibles bajo la falda
     gg.lineStyle(2, 0x111111);
     gg.lineBetween(8, 50, 5, 57);
     gg.lineBetween(12, 50, 15, 57);
     gg.generateTexture('girl', 20, 60);
     gg.destroy();
 
-    // y=405: borde superior del suelo (434.5) - mitad del sprite (30)
     girl = this.physics.add.staticSprite(660, 405, 'girl');
+
+    // Cámaras encima de los beams en z-order
+    drawCameras(this);
 
     cursors   = this.input.keyboard.createCursorKeys();
     keys      = this.input.keyboard.addKeys({
@@ -112,7 +132,6 @@ function create() {
 function update(time, delta) {
     const onGround = player.body.blocked.down;
 
-    // Movimiento horizontal
     if (cursors.left.isDown || keys.left.isDown) {
         player.setVelocityX(-180);
     } else if (cursors.right.isDown || keys.right.isDown) {
@@ -121,13 +140,10 @@ function update(time, delta) {
         player.setVelocityX(0);
     }
 
-    // Salto
     if (cursors.up.isDown && onGround) {
         player.setVelocityY(-520);
     }
 
-    // Agacharse (SPACE o ↓, solo en el suelo)
-    // body 20x36 + offset.y=24 mantiene los pies en el mismo Y que de pie
     if ((spaceKey.isDown || keys.down.isDown) && onGround) {
         if (!isCrouching) {
             isCrouching = true;
@@ -144,46 +160,50 @@ function update(time, delta) {
 
     if (gameOver) return;
 
-    // ─── Haz de luz ────────────────────────────────────────────
+    // ─── Haz derecho (cámara superior-derecha) ─────────────────
+    lightX1 += lightSpeed1 * (delta / 1000);
+    if (lightX1 > 700) { lightX1 = 700; lightSpeed1 = -Math.abs(lightSpeed1); }
+    if (lightX1 < 300) { lightX1 = 300; lightSpeed1 =  Math.abs(lightSpeed1); }
 
-    // Movimiento lateral con rebote
-    lightX += lightSpeed * (delta / 1000);
-    if (lightX > 630) { lightX = 630; lightSpeed = -Math.abs(lightSpeed); }
-    if (lightX < 100) { lightX = 100; lightSpeed =  Math.abs(lightSpeed); }
-
-    // Dibujo en 3 capas para efecto de glow
-    lightGfx.clear();
-
-    // Capa 1: resplandor exterior ancho
-    lightGfx.fillStyle(0xffee00, 0.07);
-    lightGfx.fillPoints([
-        { x: BEAM_SRC_X - 15, y: 0   },
-        { x: BEAM_SRC_X + 15, y: 0   },
-        { x: lightX + 80,     y: 435 },
-        { x: lightX - 80,     y: 435 }
+    lightGfx1.clear();
+    lightGfx1.fillStyle(0xffee00, 0.07);
+    lightGfx1.fillPoints([
+        {x: BEAM_SRC_RIGHT-15, y:0}, {x: BEAM_SRC_RIGHT+15, y:0},
+        {x: lightX1+80, y:435},      {x: lightX1-80, y:435}
     ], true);
-
-    // Capa 2: cono principal
-    lightGfx.fillStyle(0xffee00, 0.22);
-    lightGfx.fillPoints([
-        { x: BEAM_SRC_X - 8, y: 0   },
-        { x: BEAM_SRC_X + 8, y: 0   },
-        { x: lightX + 55,    y: 435 },
-        { x: lightX - 55,    y: 435 }
+    lightGfx1.fillStyle(0xffee00, 0.22);
+    lightGfx1.fillPoints([
+        {x: BEAM_SRC_RIGHT-8, y:0}, {x: BEAM_SRC_RIGHT+8, y:0},
+        {x: lightX1+55, y:435},     {x: lightX1-55, y:435}
     ], true);
+    lightGfx1.fillStyle(0xfffde7, 0.42);
+    lightGfx1.fillTriangle(BEAM_SRC_RIGHT-2, 0, BEAM_SRC_RIGHT+2, 0, lightX1, 435);
 
-    // Capa 3: rayo central brillante
-    lightGfx.fillStyle(0xfffde7, 0.42);
-    lightGfx.fillTriangle(BEAM_SRC_X - 2, 0, BEAM_SRC_X + 2, 0, lightX, 435);
+    // ─── Haz izquierdo (cámara superior-izquierda) ─────────────
+    lightX2 += lightSpeed2 * (delta / 1000);
+    if (lightX2 > 500) { lightX2 = 500; lightSpeed2 = -Math.abs(lightSpeed2); }
+    if (lightX2 < 80)  { lightX2 = 80;  lightSpeed2 =  Math.abs(lightSpeed2); }
 
-    // Punto de la lámpara en la fuente
-    lightGfx.fillStyle(0xffffff, 0.9);
-    lightGfx.fillCircle(BEAM_SRC_X, 6, 6);
+    lightGfx2.clear();
+    lightGfx2.fillStyle(0xffee00, 0.07);
+    lightGfx2.fillPoints([
+        {x: BEAM_SRC_LEFT-15, y:0}, {x: BEAM_SRC_LEFT+15, y:0},
+        {x: lightX2+80, y:435},     {x: lightX2-80, y:435}
+    ], true);
+    lightGfx2.fillStyle(0xffee00, 0.22);
+    lightGfx2.fillPoints([
+        {x: BEAM_SRC_LEFT-8, y:0}, {x: BEAM_SRC_LEFT+8, y:0},
+        {x: lightX2+55, y:435},    {x: lightX2-55, y:435}
+    ], true);
+    lightGfx2.fillStyle(0xfffde7, 0.42);
+    lightGfx2.fillTriangle(BEAM_SRC_LEFT-2, 0, BEAM_SRC_LEFT+2, 0, lightX2, 435);
 
     // ─── Detección ─────────────────────────────────────────────
-    // Agachado → siempre seguro (la luz pasa por arriba)
     hitCooldown -= delta;
-    const inBeam = !isCrouching && Math.abs(player.x - lightX) < BEAM_HIT_HW;
+    const inBeam = !isCrouching && (
+        Math.abs(player.x - lightX1) < BEAM_HIT_HW ||
+        Math.abs(player.x - lightX2) < BEAM_HIT_HW
+    );
 
     if (inBeam && hitCooldown <= 0) {
         lives--;
@@ -191,13 +211,44 @@ function update(time, delta) {
         this.cameras.main.flash(300, 200, 20, 20);
 
         if (lives <= 0) {
-            gameOver   = true;
-            lightSpeed = 0;
+            gameOver    = true;
+            lightSpeed1 = 0;
+            lightSpeed2 = 0;
             livesText.setText('GAME OVER').setColor('#ff2222');
         } else {
             livesText.setText(Array(lives).fill('♥').join('  '));
         }
     }
+}
+
+function drawCameras(scene) {
+    let cam = scene.add.graphics();
+
+    // Cámara derecha (esquina superior-derecha, lente apunta hacia la izquierda-abajo)
+    cam.fillStyle(0x3a3a3a);
+    cam.fillRect(781, 0, 14, 8);    // soporte de techo
+    cam.fillRect(769, 7, 27, 18);   // cuerpo rectangular
+    cam.fillStyle(0x555555);
+    cam.fillRect(769, 7, 3, 18);    // detalle lateral (bisel)
+    cam.fillStyle(0x1a1a1a);
+    cam.fillCircle(773, 16, 7);     // carcasa del lente
+    cam.fillStyle(0xaa0000);
+    cam.fillCircle(773, 16, 5);     // lente rojo
+    cam.fillStyle(0xff5555, 0.9);
+    cam.fillCircle(773, 16, 2);     // brillo LED
+
+    // Cámara izquierda (esquina superior-izquierda, lente apunta hacia la derecha-abajo)
+    cam.fillStyle(0x3a3a3a);
+    cam.fillRect(5, 0, 14, 8);      // soporte de techo
+    cam.fillRect(4, 7, 27, 18);     // cuerpo rectangular
+    cam.fillStyle(0x555555);
+    cam.fillRect(28, 7, 3, 18);     // detalle lateral (bisel)
+    cam.fillStyle(0x1a1a1a);
+    cam.fillCircle(27, 16, 7);      // carcasa del lente
+    cam.fillStyle(0xaa0000);
+    cam.fillCircle(27, 16, 5);      // lente rojo
+    cam.fillStyle(0xff5555, 0.9);
+    cam.fillCircle(27, 16, 2);      // brillo LED
 }
 
 function drawBackground(scene) {
