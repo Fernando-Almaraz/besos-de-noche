@@ -14,12 +14,18 @@ new Phaser.Game(config);
 let player, girl, groundSprite, cursors, keys, spaceKey;
 let isCrouching = false;
 let lightGfx1, lightGfx2, lightX1, lightX2, lightSpeed1, lightSpeed2;
-let lives = 3, hitCooldown = 0, gameOver = false;
-let livesText;
+let lives = 3, hitCooldown = 0;
+let livesText, overlayText;
+let particles = [];
+let gameState = 'playing'; // 'playing' | 'kiss' | 'levelComplete' | 'gameOver'
+let currentLevel = 1;
+let kissTimer = 0;
+let rKey;
 
 const BEAM_SRC_RIGHT = 790;
 const BEAM_SRC_LEFT  = 10;
 const BEAM_HIT_HW    = 55;
+const KISS_DIST      = 40;
 
 function preload() {}
 
@@ -37,15 +43,13 @@ function create() {
     groundSprite = this.physics.add.staticImage(400, 467, 'ground');
     drawBushes(this);
 
-    // Beams detrás del jugador en z-order
     lightGfx1 = this.add.graphics();
     lightGfx2 = this.add.graphics();
-    lightX1 = 580;  lightSpeed1 = -140;  // cámara derecha, empieza yendo a la izquierda
-    lightX2 = 200;  lightSpeed2 =  110;  // cámara izquierda, empieza yendo a la derecha
+    lightX1 = 580;  lightSpeed1 = -140;
+    lightX2 = 200;  lightSpeed2 =  110;
 
     // ── Chico de pie ─────────────────────────────────────────────
     let pg = this.make.graphics({ add: false });
-    // Pelo revuelto (tufos sticking up, dibujados antes; cabeza encima los ancla)
     pg.fillStyle(0x111111);
     pg.fillRect(5, 0, 3, 5);
     pg.fillRect(9, 0, 4, 4);
@@ -55,7 +59,6 @@ function create() {
     pg.lineBetween(10, 18, 10, 42);
     pg.lineBetween(10, 24, 0, 34);
     pg.lineBetween(10, 24, 20, 34);
-    // Pantalones anchos (formas rellenas en vez de líneas finas)
     pg.fillStyle(0x111111);
     pg.fillPoints([{x:4,y:42},{x:10,y:42},{x:9,y:58},{x:1,y:57}], true);
     pg.fillPoints([{x:10,y:42},{x:16,y:42},{x:19,y:57},{x:11,y:58}], true);
@@ -85,24 +88,19 @@ function create() {
 
     // ── Chica ─────────────────────────────────────────────────────
     let gg = this.make.graphics({ add: false });
-    // Cabello azul en mechones (dibujado antes → cabeza lo superpone en el centro)
     gg.fillStyle(0x4488dd);
-    gg.fillTriangle(0, 7, 6, 5, 2, 22);    // mechón izquierdo cae a los lados
-    gg.fillTriangle(14, 5, 20, 7, 18, 22); // mechón derecho
-    gg.fillTriangle(5, 4, 15, 4, 10, 1);   // volumen encima
-    // Cabeza encima del cabello
+    gg.fillTriangle(0, 7, 6, 5, 2, 22);
+    gg.fillTriangle(14, 5, 20, 7, 18, 22);
+    gg.fillTriangle(5, 4, 15, 4, 10, 1);
     gg.fillStyle(0x111111);
     gg.fillCircle(10, 10, 8);
-    // Cuerpo
     gg.lineStyle(3, 0x111111);
     gg.lineBetween(10, 18, 10, 36);
     gg.lineBetween(10, 24, 0, 34);
     gg.lineBetween(10, 24, 20, 34);
-    // Vestido (falda)
     gg.fillStyle(0x881144);
     gg.fillTriangle(5, 36, 15, 36, 1, 57);
     gg.fillTriangle(5, 36, 15, 36, 19, 57);
-    // Piernas visibles bajo la falda
     gg.lineStyle(2, 0x111111);
     gg.lineBetween(8, 50, 5, 57);
     gg.lineBetween(12, 50, 15, 57);
@@ -111,7 +109,6 @@ function create() {
 
     girl = this.physics.add.staticSprite(660, 405, 'girl');
 
-    // Cámaras encima de los beams en z-order
     drawCameras(this);
 
     cursors   = this.input.keyboard.createCursorKeys();
@@ -121,15 +118,42 @@ function create() {
     });
     spaceKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     keys.down = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
+    rKey      = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
 
     livesText = this.add.text(16, 16, '♥  ♥  ♥', {
-        fontSize: '20px',
-        color: '#ff6666',
-        fontFamily: 'monospace'
+        fontSize: '20px', color: '#ff6666', fontFamily: 'monospace'
     });
+
+    // Texto de overlay (beso / nivel / game over) — oculto inicialmente
+    overlayText = this.add.text(400, 200, '', {
+        fontSize: '36px', color: '#ffffff', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 5,
+        align: 'center'
+    }).setOrigin(0.5).setVisible(false);
 }
 
 function update(time, delta) {
+    // R reinicia siempre (game over o nivel completado)
+    if (Phaser.Input.Keyboard.JustDown(rKey)) {
+        if (gameState === 'gameOver' || gameState === 'levelComplete') {
+            restartLevel(this);
+            return;
+        }
+    }
+
+    if (gameState !== 'playing') {
+        // Durante animación de beso el jugador se queda quieto
+        if (gameState === 'kiss') {
+            tickParticles(delta);
+            kissTimer -= delta;
+            if (kissTimer <= 0) {
+                gameState = 'levelComplete';
+                showOverlay('NIVEL ' + currentLevel + ' COMPLETADO!\n\nR — reiniciar   N — siguiente nivel');
+            }
+        }
+        return;
+    }
+
     const onGround = player.body.blocked.down;
 
     if (cursors.left.isDown || keys.left.isDown) {
@@ -158,9 +182,7 @@ function update(time, delta) {
         player.body.setOffset(0, 0);
     }
 
-    if (gameOver) return;
-
-    // ─── Haz derecho (cámara superior-derecha) ─────────────────
+    // ─── Mover y dibujar hazes ──────────────────────────────────
     lightX1 += lightSpeed1 * (delta / 1000);
     if (lightX1 > 700) { lightX1 = 700; lightSpeed1 = -Math.abs(lightSpeed1); }
     if (lightX1 < 300) { lightX1 = 300; lightSpeed1 =  Math.abs(lightSpeed1); }
@@ -168,18 +190,17 @@ function update(time, delta) {
     lightGfx1.clear();
     lightGfx1.fillStyle(0xffee00, 0.07);
     lightGfx1.fillPoints([
-        {x: BEAM_SRC_RIGHT-15, y:0}, {x: BEAM_SRC_RIGHT+15, y:0},
-        {x: lightX1+80, y:435},      {x: lightX1-80, y:435}
+        {x:BEAM_SRC_RIGHT-15,y:0},{x:BEAM_SRC_RIGHT+15,y:0},
+        {x:lightX1+80,y:435},{x:lightX1-80,y:435}
     ], true);
     lightGfx1.fillStyle(0xffee00, 0.22);
     lightGfx1.fillPoints([
-        {x: BEAM_SRC_RIGHT-8, y:0}, {x: BEAM_SRC_RIGHT+8, y:0},
-        {x: lightX1+55, y:435},     {x: lightX1-55, y:435}
+        {x:BEAM_SRC_RIGHT-8,y:0},{x:BEAM_SRC_RIGHT+8,y:0},
+        {x:lightX1+55,y:435},{x:lightX1-55,y:435}
     ], true);
     lightGfx1.fillStyle(0xfffde7, 0.42);
-    lightGfx1.fillTriangle(BEAM_SRC_RIGHT-2, 0, BEAM_SRC_RIGHT+2, 0, lightX1, 435);
+    lightGfx1.fillTriangle(BEAM_SRC_RIGHT-2,0,BEAM_SRC_RIGHT+2,0,lightX1,435);
 
-    // ─── Haz izquierdo (cámara superior-izquierda) ─────────────
     lightX2 += lightSpeed2 * (delta / 1000);
     if (lightX2 > 500) { lightX2 = 500; lightSpeed2 = -Math.abs(lightSpeed2); }
     if (lightX2 < 80)  { lightX2 = 80;  lightSpeed2 =  Math.abs(lightSpeed2); }
@@ -187,68 +208,192 @@ function update(time, delta) {
     lightGfx2.clear();
     lightGfx2.fillStyle(0xffee00, 0.07);
     lightGfx2.fillPoints([
-        {x: BEAM_SRC_LEFT-15, y:0}, {x: BEAM_SRC_LEFT+15, y:0},
-        {x: lightX2+80, y:435},     {x: lightX2-80, y:435}
+        {x:BEAM_SRC_LEFT-15,y:0},{x:BEAM_SRC_LEFT+15,y:0},
+        {x:lightX2+80,y:435},{x:lightX2-80,y:435}
     ], true);
     lightGfx2.fillStyle(0xffee00, 0.22);
     lightGfx2.fillPoints([
-        {x: BEAM_SRC_LEFT-8, y:0}, {x: BEAM_SRC_LEFT+8, y:0},
-        {x: lightX2+55, y:435},    {x: lightX2-55, y:435}
+        {x:BEAM_SRC_LEFT-8,y:0},{x:BEAM_SRC_LEFT+8,y:0},
+        {x:lightX2+55,y:435},{x:lightX2-55,y:435}
     ], true);
     lightGfx2.fillStyle(0xfffde7, 0.42);
-    lightGfx2.fillTriangle(BEAM_SRC_LEFT-2, 0, BEAM_SRC_LEFT+2, 0, lightX2, 435);
+    lightGfx2.fillTriangle(BEAM_SRC_LEFT-2,0,BEAM_SRC_LEFT+2,0,lightX2,435);
 
-    // ─── Detección ─────────────────────────────────────────────
+    // ─── Detección de luz ───────────────────────────────────────
     hitCooldown -= delta;
-    const inBeam = !isCrouching && (
+
+    const playerInBeam = !isCrouching && (
         Math.abs(player.x - lightX1) < BEAM_HIT_HW ||
         Math.abs(player.x - lightX2) < BEAM_HIT_HW
     );
+    // La chica es detectada si la luz la toca (ella nunca se agacha)
+    const girlInBeam = (
+        Math.abs(girl.x - lightX1) < BEAM_HIT_HW ||
+        Math.abs(girl.x - lightX2) < BEAM_HIT_HW
+    );
 
-    if (inBeam && hitCooldown <= 0) {
+    if ((playerInBeam || girlInBeam) && hitCooldown <= 0) {
         lives--;
         hitCooldown = 2000;
         this.cameras.main.flash(300, 200, 20, 20);
 
         if (lives <= 0) {
-            gameOver    = true;
-            lightSpeed1 = 0;
-            lightSpeed2 = 0;
-            livesText.setText('GAME OVER').setColor('#ff2222');
+            triggerGameOver(this);
         } else {
             livesText.setText(Array(lives).fill('♥').join('  '));
         }
     }
+
+    // ─── Detección de beso ──────────────────────────────────────
+    const nearGirl = Math.abs(player.x - girl.x) < KISS_DIST &&
+                     Math.abs(player.y - girl.y) < 50;
+    const beamOnCouple = (
+        Math.abs(player.x - lightX1) < BEAM_HIT_HW ||
+        Math.abs(player.x - lightX2) < BEAM_HIT_HW ||
+        Math.abs(girl.x  - lightX1) < BEAM_HIT_HW  ||
+        Math.abs(girl.x  - lightX2) < BEAM_HIT_HW
+    );
+
+    if (nearGirl && !beamOnCouple) {
+        triggerKiss(this);
+    }
+
+    tickParticles(delta);
 }
 
+// ── Beso ──────────────────────────────────────────────────────────
+function triggerKiss(scene) {
+    gameState = 'kiss';
+    kissTimer = 2200;
+    player.setVelocityX(0);
+
+    // Partículas rosas y doradas entre los dos personajes
+    const cx = (player.x + girl.x) / 2;
+    const cy = (player.y + girl.y) / 2 - 10;
+    spawnParticles(scene, cx, cy);
+
+    // Etiqueta flotante "+1 BESO ♥"
+    let label = scene.add.text(cx, cy - 30, '+1 BESO ♥', {
+        fontSize: '22px', color: '#ffaacc', fontFamily: 'monospace',
+        stroke: '#440022', strokeThickness: 4
+    }).setOrigin(0.5);
+
+    scene.tweens.add({
+        targets: label,
+        y: cy - 80,
+        alpha: 0,
+        duration: 1800,
+        ease: 'Quad.easeOut',
+        onComplete: () => label.destroy()
+    });
+}
+
+// ── Partículas manuales ───────────────────────────────────────────
+function spawnParticles(scene, cx, cy) {
+    const colors = [0xff88bb, 0xffdd55, 0xff44aa, 0xffff88, 0xff66cc];
+    for (let i = 0; i < 28; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let speed = 60 + Math.random() * 110;
+        let gfx = scene.add.graphics();
+        let color = colors[Math.floor(Math.random() * colors.length)];
+        let size = 3 + Math.random() * 4;
+        gfx.fillStyle(color, 1);
+        gfx.fillCircle(0, 0, size);
+        gfx.x = cx + (Math.random() - 0.5) * 20;
+        gfx.y = cy + (Math.random() - 0.5) * 20;
+        particles.push({
+            gfx,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 40,
+            life: 900 + Math.random() * 700,
+            maxLife: 900 + Math.random() * 700
+        });
+    }
+}
+
+function tickParticles(delta) {
+    const dt = delta / 1000;
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.life -= delta;
+        p.gfx.x += p.vx * dt;
+        p.gfx.y += p.vy * dt;
+        p.vy += 120 * dt; // gravedad suave
+        p.gfx.alpha = Math.max(0, p.life / p.maxLife);
+        if (p.life <= 0) {
+            p.gfx.destroy();
+            particles.splice(i, 1);
+        }
+    }
+}
+
+// ── Game over / nivel completo / reinicio ─────────────────────────
+function triggerGameOver(scene) {
+    gameState = 'gameOver';
+    lightSpeed1 = 0;
+    lightSpeed2 = 0;
+    livesText.setText('♥'.repeat(0)).setColor('#ff2222');
+    scene.cameras.main.shake(400, 0.012);
+    showOverlay('GAME OVER\n\nR — reiniciar');
+}
+
+function showOverlay(msg) {
+    overlayText.setText(msg).setVisible(true);
+}
+
+function restartLevel(scene) {
+    // Limpiar partículas
+    particles.forEach(p => p.gfx.destroy());
+    particles = [];
+
+    gameState   = 'playing';
+    lives       = 3;
+    hitCooldown = 0;
+    isCrouching = false;
+    lightSpeed1 = -140;
+    lightSpeed2 =  110;
+    lightX1     = 580;
+    lightX2     = 200;
+
+    player.setPosition(120, 370);
+    player.setVelocity(0, 0);
+    player.setTexture('player_stand');
+    player.body.setSize(20, 60);
+    player.body.setOffset(0, 0);
+
+    livesText.setText('♥  ♥  ♥').setColor('#ff6666');
+    overlayText.setVisible(false);
+}
+
+// ── Cámaras visuales ─────────────────────────────────────────────
 function drawCameras(scene) {
     let cam = scene.add.graphics();
 
-    // Cámara derecha (esquina superior-derecha, lente apunta hacia la izquierda-abajo)
+    // Cámara derecha
     cam.fillStyle(0x3a3a3a);
-    cam.fillRect(781, 0, 14, 8);    // soporte de techo
-    cam.fillRect(769, 7, 27, 18);   // cuerpo rectangular
+    cam.fillRect(781, 0, 14, 8);
+    cam.fillRect(769, 7, 27, 18);
     cam.fillStyle(0x555555);
-    cam.fillRect(769, 7, 3, 18);    // detalle lateral (bisel)
+    cam.fillRect(769, 7, 3, 18);
     cam.fillStyle(0x1a1a1a);
-    cam.fillCircle(773, 16, 7);     // carcasa del lente
+    cam.fillCircle(773, 16, 7);
     cam.fillStyle(0xaa0000);
-    cam.fillCircle(773, 16, 5);     // lente rojo
+    cam.fillCircle(773, 16, 5);
     cam.fillStyle(0xff5555, 0.9);
-    cam.fillCircle(773, 16, 2);     // brillo LED
+    cam.fillCircle(773, 16, 2);
 
-    // Cámara izquierda (esquina superior-izquierda, lente apunta hacia la derecha-abajo)
+    // Cámara izquierda
     cam.fillStyle(0x3a3a3a);
-    cam.fillRect(5, 0, 14, 8);      // soporte de techo
-    cam.fillRect(4, 7, 27, 18);     // cuerpo rectangular
+    cam.fillRect(5, 0, 14, 8);
+    cam.fillRect(4, 7, 27, 18);
     cam.fillStyle(0x555555);
-    cam.fillRect(28, 7, 3, 18);     // detalle lateral (bisel)
+    cam.fillRect(28, 7, 3, 18);
     cam.fillStyle(0x1a1a1a);
-    cam.fillCircle(27, 16, 7);      // carcasa del lente
+    cam.fillCircle(27, 16, 7);
     cam.fillStyle(0xaa0000);
-    cam.fillCircle(27, 16, 5);      // lente rojo
+    cam.fillCircle(27, 16, 5);
     cam.fillStyle(0xff5555, 0.9);
-    cam.fillCircle(27, 16, 2);      // brillo LED
+    cam.fillCircle(27, 16, 2);
 }
 
 function drawBackground(scene) {
