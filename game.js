@@ -226,13 +226,8 @@ function update(time, delta) {
         Math.abs(player.x - lightX1) < BEAM_HIT_HW ||
         Math.abs(player.x - lightX2) < BEAM_HIT_HW
     );
-    // La chica es detectada si la luz la toca (ella nunca se agacha)
-    const girlInBeam = (
-        Math.abs(girl.x - lightX1) < BEAM_HIT_HW ||
-        Math.abs(girl.x - lightX2) < BEAM_HIT_HW
-    );
 
-    if ((playerInBeam || girlInBeam) && hitCooldown <= 0) {
+    if (playerInBeam && hitCooldown <= 0) {
         lives--;
         hitCooldown = 2000;
         this.cameras.main.flash(300, 200, 20, 20);
@@ -247,11 +242,9 @@ function update(time, delta) {
     // ─── Detección de beso ──────────────────────────────────────
     const nearGirl = Math.abs(player.x - girl.x) < KISS_DIST &&
                      Math.abs(player.y - girl.y) < 50;
-    const beamOnCouple = (
+    const beamOnCouple = !isCrouching && (
         Math.abs(player.x - lightX1) < BEAM_HIT_HW ||
-        Math.abs(player.x - lightX2) < BEAM_HIT_HW ||
-        Math.abs(girl.x  - lightX1) < BEAM_HIT_HW  ||
-        Math.abs(girl.x  - lightX2) < BEAM_HIT_HW
+        Math.abs(player.x - lightX2) < BEAM_HIT_HW
     );
 
     if (nearGirl && !beamOnCouple) {
